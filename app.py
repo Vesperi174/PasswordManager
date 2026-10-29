@@ -17,7 +17,20 @@ import ctypes
 import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
+def _app_dir() -> Path:
+    """程序所在目录。
+
+    * 源码运行：脚本所在目录；
+    * 用 PyInstaller 之类打包成 exe 后：``__file__`` 指向解压出的临时目录，
+      临时目录退出即删除，数据会随之丢失。因此这里改用 ``sys.executable``（exe 本身）
+      所在目录，保证打包后 data/ 仍然稳定。
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+BASE_DIR = _app_dir()
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
