@@ -80,9 +80,9 @@ python app.py                                        :: 默认 ./data，闲置 1
    - 安装失败自动回滚；`data/`（账号库）与 `.git/` 不会被触碰；
 4. 完成后点「立即重启」即可使用新版本。
 
-> 更新源是本仓库 main 分支上的 `version.json`，其中 `download_url` 指向对应版本的
-> tag 压缩包；发布新版本时只需：把 `pm/__init__.py` 的版本号 + `version.json` 更新、
-> 打一个 `vX.Y.Z` tag 并推送，旧版本用户就能检测到更新。
+> 更新源是本仓库 main 分支上的 `version.json`，其中 `download_url` 指向 **main 分支的归档压缩包**；
+> 发布新版本时只需：把 `pm/__init__.py` 的版本号 + `version.json` 更新并推送到 main，
+> 旧版本用户就能检测到更新（不需要打 tag、也不需要发 Release）。
 > 检测时会依次尝试 raw、GitHub API、网页 raw 三个地址，某个地址被墙/被代理拦截也能继续。
 
 ## 界面怎么用

@@ -5,7 +5,7 @@
     {
       "version": "1.1.0",
       "released_at": "2026-10-28",
-      "download_url": "https://github.com/<user>/<repo>/archive/refs/tags/v1.1.0.zip",
+      "download_url": "https://github.com/<user>/<repo>/archive/refs/heads/main.zip",
       "notes": ["本次更新内容……", "……"]
     }
 
@@ -13,6 +13,9 @@
 解压后只替换程序文件（app.py / pm / tools / 文档等），**绝不触碰 data/ 数据目录**。
 替换前会先把当前程序文件打包备份到 ``data/backups/update-backup-*.zip``，
 替换失败会自动回滚。
+
+更新包直接取自仓库 main 分支的归档（不需要打 tag / 发 Release）：
+发布新版本时把 ``pm/__init__.py`` 的版本号与 ``version.json`` 一起推送到 main 即可。
 
 注意：更新包来自官方仓库的 HTTPS 下载地址，属于"信任源"更新；
 主密码与账号数据全部在本地 data/ 里，不会被上传。
