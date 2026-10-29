@@ -1,0 +1,19 @@
+# 密码库数据（含加密后的账号，勿提交）
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# 测试/临时产物
+.tmp/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 导出备份
+密码库导出-*.json
+
+# 打包产物
+build/
+dist/
+*.spec

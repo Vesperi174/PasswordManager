@@ -1,0 +1,6 @@
+# 本程序只使用 Python 标准库（含 tkinter），没有第三方依赖。
+# 因此不需要执行 pip install，直接运行 python app.py 或双击 run.bat 即可。
+#
+# 若想把它打包成单个 .exe（可选）：
+#   pip install pyinstaller
+#   pyinstaller --noconsole --onefile --name 密码库 app.py
