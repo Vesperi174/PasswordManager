@@ -603,6 +603,40 @@ def main() -> int:
         check("删除组后不再有组行", all(item[0] == "account" for item in view._visible_items()))
         check("账号本身仍然存在", any(a["id"] == member_a["id"] for a in view.accounts))
 
+        print("== 检测更新 ==")
+        from pm.gui_dialogs import UpdateDialog
+
+        update_dialog = UpdateDialog(app, "1.1.0", app, auto_check=False)
+        app.update()
+        update_dialog._on_manifest(
+            {"version": "1.1.0", "notes": [], "download_url": "https://example.com/1.1.0.zip"}
+        )
+        app.update()
+        check(
+            "已是最新版本提示",
+            "最新" in str(update_dialog.status.cget("text")),
+            str(update_dialog.status.cget("text")),
+        )
+        check("最新时没有下载按钮", not update_dialog.action_btn.winfo_manager())
+
+        update_dialog._on_manifest(
+            {
+                "version": "1.2.0",
+                "notes": ["新增检测更新"],
+                "download_url": "https://example.com/1.2.0.zip",
+            }
+        )
+        app.update()
+        check("提示发现新版本", "1.2.0" in str(update_dialog.status.cget("text")))
+        check("出现下载并更新按钮", bool(update_dialog.action_btn.winfo_manager()))
+        check("显示更新说明", "新增检测更新" in update_dialog.notes.get("1.0", "end"))
+
+        update_dialog._on_error("检测失败：网络错误")
+        app.update()
+        check("检测失败提示", "失败" in str(update_dialog.status.cget("text")))
+        check("失败时出现重试按钮", bool(update_dialog.retry_btn.winfo_manager()))
+        update_dialog.destroy()
+
         print("== 自动加密备份与恢复 ==")
         backup_files = sorted(app.backup_dir.glob("vault-*.db"))
         check("解锁时自动生成加密备份", len(backup_files) >= 1, str([p.name for p in backup_files]))

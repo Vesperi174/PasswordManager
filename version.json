@@ -1,0 +1,10 @@
+{
+  "version": "1.1.0",
+  "released_at": "2026-10-28",
+  "download_url": "https://github.com/Vesperi174/PasswordManager/archive/refs/tags/v1.1.0.zip",
+  "notes": [
+    "新增「检测更新」：菜单 ⋯ → 检测更新…，可直接在应用内检查、下载并安装新版本，不需要打开浏览器或 GitHub",
+    "更新前自动把当前程序文件打包备份到 data/backups，安装失败自动回滚；账号数据（data/）不受影响",
+    "检测到新版本后可一键下载并提示重启生效"
+  ]
+}

@@ -11,11 +11,13 @@ import json
 import shutil
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pm import crypto  # noqa: E402
+from pm import update  # noqa: E402
 from pm import util  # noqa: E402
 from pm.store import (  # noqa: E402
     BadPassword,
@@ -384,6 +386,57 @@ def main() -> int:
             group_blobs += candidate.read_bytes()
     check("账号组名称不以明文落盘", "Apex 游戏组".encode() not in group_blobs)
     check("账号组备注不以明文落盘", "EA + Steam".encode() not in group_blobs)
+
+    print("== 在线更新 ==")
+    check(
+        "版本号解析",
+        update.parse_version("v1.2.3") == (1, 2, 3)
+        and update.parse_version("1.10.0") > update.parse_version("1.9.9"),
+    )
+    check(
+        "新版本判断",
+        update.is_newer("1.2.0", "1.1.0") and not update.is_newer("1.1.0", "1.1.0"),
+    )
+
+    release_root = tmp / "release" / "PasswordManager-9.9.9"
+    (release_root / "pm").mkdir(parents=True)
+    (release_root / "pm" / "__init__.py").write_text('__version__ = "9.9.9"\n', encoding="utf-8")
+    (release_root / "pm" / "new_module.py").write_text("x = 1\n", encoding="utf-8")
+    (release_root / "app.py").write_text("print('new')\n", encoding="utf-8")
+    (release_root / "version.json").write_text('{"version": "9.9.9"}', encoding="utf-8")
+    release_zip = tmp / "release.zip"
+    with zipfile.ZipFile(release_zip, "w") as archive:
+        for path in release_root.rglob("*"):
+            if path.is_file():
+                archive.write(path, path.relative_to(release_root.parent).as_posix())
+
+    app_dir = tmp / "appdir"
+    (app_dir / "pm").mkdir(parents=True)
+    (app_dir / "tools").mkdir(parents=True)
+    (app_dir / "data").mkdir(parents=True)
+    (app_dir / "data" / "vault.db").write_text("secret", encoding="utf-8")
+    (app_dir / "pm" / "__init__.py").write_text('__version__ = "9.0.0"\n', encoding="utf-8")
+    (app_dir / "pm" / "stale_old.py").write_text("old = 1\n", encoding="utf-8")
+    (app_dir / "tools" / "old_tool.py").write_text("x\n", encoding="utf-8")
+    (app_dir / "app.py").write_text("print('old')\n", encoding="utf-8")
+
+    backup = update.apply_update(release_zip, app_dir)
+    check("更新后 app.py 被替换", (app_dir / "app.py").read_text(encoding="utf-8") == "print('new')\n")
+    check("更新后版本号变新", "9.9.9" in (app_dir / "pm" / "__init__.py").read_text(encoding="utf-8"))
+    check("新模块已写入", (app_dir / "pm" / "new_module.py").exists())
+    check(
+        "旧版本遗留文件被清理",
+        not (app_dir / "pm" / "stale_old.py").exists()
+        and not (app_dir / "tools" / "old_tool.py").exists(),
+    )
+    check("data 目录未被触碰", (app_dir / "data" / "vault.db").read_text(encoding="utf-8") == "secret")
+    check("已生成程序文件备份", backup.exists() and backup.parent.name == "backups")
+
+    update.restore_program_files(backup, app_dir)
+    check(
+        "可用备份回滚",
+        '__version__ = "9.0.0"' in (app_dir / "pm" / "__init__.py").read_text(encoding="utf-8"),
+    )
 
     print("== 加密原语冒烟 ==")
     key = crypto.random_bytes(crypto.KEY_SIZE)

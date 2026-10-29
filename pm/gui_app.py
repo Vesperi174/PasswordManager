@@ -15,6 +15,7 @@ from tkinter import filedialog
 from . import __version__
 from . import store
 from . import ui_kit as ui
+from . import update
 from . import util
 from .gui_dialogs import (
     AboutDialog,
@@ -22,6 +23,7 @@ from .gui_dialogs import (
     ChangeMasterDialog,
     GroupDialog,
     LinkDialog,
+    UpdateDialog,
     ask_yes_no,
     show_error,
     show_info,
@@ -401,6 +403,8 @@ class VaultView(tk.Frame):
             relief="flat",
             font=ui.FONT_BODY,
         )
+        self._menu.add_command(label="检测更新…", command=self._check_update)
+        self._menu.add_separator()
         self._menu.add_command(label="修改主密码", command=self._change_master)
         self._menu.add_command(label="新建账号组…", command=self._new_group)
         self._menu.add_command(label="导出明文备份…", command=self._export)
@@ -1500,6 +1504,11 @@ class VaultView(tk.Frame):
         if ChangeMasterDialog(self, self.vault).show():
             self._show_toast("主密码已修改")
 
+    def _check_update(self) -> None:
+        dialog = UpdateDialog(self, __version__, self.app)
+        if dialog.show() == "restart":
+            self.app.destroy()
+
     def _about(self) -> None:
         AboutDialog(self, __version__, str(self.app.db_path)).show()
 
@@ -1751,6 +1760,18 @@ class PasswordVaultApp(tk.Tk):
 
         self.lock("")
         return True
+
+    def prepare_relaunch(self) -> None:
+        """更新完成后：备份、关闭库、拉起新进程，由调用方销毁窗口退出。"""
+        try:
+            self._auto_backup()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self.vault.close()
+        except Exception:  # noqa: BLE001
+            pass
+        update.restart_app()
 
     # ---- 事件
     def _focus_search(self, _event=None) -> None:

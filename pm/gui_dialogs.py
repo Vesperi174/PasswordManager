@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import shutil
+import tempfile
+import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, ttk
 
 from . import store
 from . import ui_kit as ui
+from . import update
 from . import util
 
 PALETTE = ui.PALETTE
@@ -946,6 +951,184 @@ class GroupDialog(Dialog):
             self._set_error(str(exc))
             return
         self.result = saved
+        self.destroy()
+
+
+class UpdateDialog(Dialog):
+    """检测更新：检查 GitHub 上的最新版本，可在线下载并替换程序文件。"""
+
+    def __init__(self, master: tk.Misc, current_version: str, app, *, auto_check: bool = True) -> None:
+        super().__init__(master, "检测更新", width=540)
+        self.current_version = current_version
+        self.app = app
+        self._manifest: dict | None = None
+        self._busy = False
+        self._state = "checking"
+
+        self.headline(
+            "检测更新",
+            f"当前版本 {current_version}。检查最新版本后可直接下载并更新，不需要打开浏览器或 GitHub。",
+        )
+
+        self.status = _label(
+            self.body,
+            "",
+            font=ui.FONT_BODY,
+            fg=PALETTE["text_soft"],
+            wraplength=470,
+            justify="left",
+        )
+        self.status.pack(anchor="w", pady=(6, 4))
+
+        self.progress = ttk.Progressbar(self.body, mode="determinate", maximum=100)
+        self.progress.configure(value=0)
+
+        self.notes = tk.Text(
+            self.body,
+            height=6,
+            wrap="word",
+            font=ui.FONT_SMALL,
+            relief="flat",
+            bd=0,
+            bg=PALETTE["soft"],
+            fg=PALETTE["text_soft"],
+            padx=10,
+            pady=8,
+            highlightthickness=1,
+            highlightbackground=PALETTE["border"],
+        )
+        self.notes.pack(fill="both", expand=True)
+        self.notes.configure(state="disabled")
+
+        self.close_btn = ui.Button(self.footer, "关闭", self._cancel)
+        self.close_btn.pack(side="right", padx=(8, 0))
+        self.restart_btn = ui.Button(self.footer, "立即重启", self._restart, kind="primary")
+        self.action_btn = ui.Button(self.footer, "下载并更新", self._start_update, kind="primary")
+        self.retry_btn = ui.Button(self.footer, "重试", self.start_check, kind="secondary")
+
+        self._update_buttons()
+        if auto_check:
+            self.after(150, self.start_check)
+
+    # ---- 状态
+    def _set_status(self, text: str, *, error: bool = False) -> None:
+        self.status.configure(text=text, fg=PALETTE["danger"] if error else PALETTE["text_soft"])
+
+    def _set_notes(self, notes: list[str]) -> None:
+        self.notes.configure(state="normal")
+        self.notes.delete("1.0", "end")
+        for note in notes:
+            self.notes.insert("end", f"· {note}\n")
+        self.notes.configure(state="disabled")
+
+    def _update_buttons(self) -> None:
+        for button in (self.retry_btn, self.action_btn, self.restart_btn):
+            if button.winfo_manager():
+                button.pack_forget()
+        if self._busy:
+            return
+        if self._state == "available":
+            self.action_btn.pack(side="right", padx=(8, 0))
+        elif self._state == "error":
+            self.retry_btn.pack(side="right", padx=(8, 0))
+        elif self._state == "done":
+            self.restart_btn.pack(side="right", padx=(8, 0))
+
+    def _after_safe(self, callback) -> None:
+        try:
+            self.after(0, callback)
+        except tk.TclError:
+            pass
+
+    # ---- 检测
+    def start_check(self) -> None:
+        if self._busy:
+            return
+        self._state = "checking"
+        self._busy = True
+        self.progress.configure(value=0)
+        self.progress.pack_forget()
+        self._set_status("正在检测最新版本…")
+        self._set_notes([])
+        self._update_buttons()
+        threading.Thread(target=self._check_worker, daemon=True).start()
+
+    def _check_worker(self) -> None:
+        try:
+            manifest = update.fetch_manifest()
+        except Exception as exc:  # noqa: BLE001 - 网络/格式问题都提示给用户
+            self._after_safe(lambda: self._on_error(f"检测失败：{exc}"))
+            return
+        self._after_safe(lambda: self._on_manifest(manifest))
+
+    def _on_manifest(self, manifest: dict) -> None:
+        self._busy = False
+        self._manifest = manifest
+        version = str(manifest.get("version") or "")
+        raw_notes = manifest.get("notes") or []
+        notes = raw_notes if isinstance(raw_notes, list) else [str(raw_notes)]
+
+        if update.is_newer(version, self.current_version):
+            self._state = "available"
+            self._set_status(
+                f"发现新版本 {version}（当前 {self.current_version}）。"
+                "下载后会先备份当前程序文件再替换，账号数据（data/）不受影响。"
+            )
+            self._set_notes([str(note) for note in notes])
+        else:
+            self._state = "latest"
+            self._set_status(f"已是最新版本（{self.current_version}）。")
+            self._set_notes([])
+        self._update_buttons()
+
+    def _on_error(self, message: str) -> None:
+        self._busy = False
+        self._state = "error"
+        self._set_status(message, error=True)
+        self._update_buttons()
+
+    # ---- 下载与更新
+    def _start_update(self) -> None:
+        if self._busy or not self._manifest:
+            return
+        self._state = "downloading"
+        self._busy = True
+        self.progress.configure(value=0)
+        self.progress.pack(fill="x", pady=(2, 6))
+        self._set_status("正在下载更新包…")
+        self._update_buttons()
+        threading.Thread(target=self._download_worker, daemon=True).start()
+
+    def _set_progress(self, fraction: float) -> None:
+        self.progress.configure(value=max(0, min(100, fraction * 100)))
+
+    def _download_worker(self) -> None:
+        manifest = self._manifest or {}
+        try:
+            work = Path(tempfile.mkdtemp(prefix="pm-update-"))
+            zip_path = work / "update.zip"
+            update.download_zip(
+                str(manifest["download_url"]),
+                zip_path,
+                progress=lambda fraction: self._after_safe(lambda: self._set_progress(fraction)),
+            )
+            self._after_safe(lambda: self._set_status("正在安装更新（已备份当前程序文件）…"))
+            backup = update.apply_update(zip_path)
+            shutil.rmtree(work, ignore_errors=True)
+            self._after_safe(lambda: self._on_done(backup))
+        except Exception as exc:  # noqa: BLE001
+            self._after_safe(lambda: self._on_error(f"更新失败：{exc}"))
+
+    def _on_done(self, backup: Path) -> None:
+        self._busy = False
+        self._state = "done"
+        self.progress.configure(value=100)
+        self._set_status(f"更新完成，重启程序后生效。\n当前程序文件已备份到：{backup}")
+        self._update_buttons()
+
+    def _restart(self) -> None:
+        self.app.prepare_relaunch()
+        self.result = "restart"
         self.destroy()
 
 
