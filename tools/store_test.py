@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import shutil
 import sys
@@ -397,6 +398,39 @@ def main() -> int:
         "新版本判断",
         update.is_newer("1.2.0", "1.1.0") and not update.is_newer("1.1.0", "1.1.0"),
     )
+
+    local_manifest = tmp / "local-version.json"
+    local_manifest.write_text(
+        json.dumps({"version": "9.9.9", "download_url": "https://example.com/x.zip"}),
+        encoding="utf-8",
+    )
+    original_sources = update.MANIFEST_SOURCES
+    update.MANIFEST_SOURCES = ((tmp / "not-exist.json").as_uri(), local_manifest.as_uri())
+    try:
+        check(
+            "多源兜底：前一个地址失败自动换下一个",
+            update.fetch_manifest(timeout=3)["version"] == "9.9.9",
+        )
+    finally:
+        update.MANIFEST_SOURCES = original_sources
+
+    api_style = tmp / "api-style.json"
+    api_style.write_text(
+        json.dumps(
+            {
+                "encoding": "base64",
+                "content": base64.b64encode(
+                    json.dumps({"version": "8.8.8", "download_url": "https://example.com/8.8.8.zip"}).encode()
+                ).decode(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    update.MANIFEST_SOURCES = (api_style.as_uri(),)
+    try:
+        check("兼容 GitHub API 的 base64 返回", update.fetch_manifest()["version"] == "8.8.8")
+    finally:
+        update.MANIFEST_SOURCES = original_sources
 
     release_root = tmp / "release" / "PasswordManager-9.9.9"
     (release_root / "pm").mkdir(parents=True)

@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -33,7 +34,13 @@ from pathlib import Path
 
 from . import __version__
 
-MANIFEST_URL = "https://raw.githubusercontent.com/Vesperi174/PasswordManager/main/version.json"
+#: 版本信息的多个来源，按顺序尝试（raw 最快；API 作为兜底；raw 重定向地址再兜底）
+MANIFEST_SOURCES = (
+    "https://raw.githubusercontent.com/Vesperi174/PasswordManager/main/version.json",
+    "https://api.github.com/repos/Vesperi174/PasswordManager/contents/version.json",
+    "https://github.com/Vesperi174/PasswordManager/raw/main/version.json",
+)
+
 USER_AGENT = f"PasswordManager/{__version__}"
 
 #: 更新时绝不覆盖/备份的内容（数据、版本库、临时目录）
@@ -75,23 +82,51 @@ def app_dir() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def fetch_manifest(url: str = MANIFEST_URL, timeout: float = 15.0) -> dict:
+def _load_manifest_payload(payload: str) -> dict:
+    """解析版本信息；兼容 GitHub API contents 返回的 base64 外壳。"""
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        data = None
+    if isinstance(data, dict) and data.get("encoding") == "base64" and data.get("content"):
+        data = json.loads(base64.b64decode(data["content"]).decode("utf-8"))
+    if not isinstance(data, dict) or not data.get("version"):
+        raise ValueError("更新信息格式不正确")
+    if not data.get("download_url"):
+        raise ValueError("更新信息缺少下载地址")
+    return data
+
+
+def _fetch_manifest_once(url: str, timeout: float) -> dict:
     request = urllib.request.Request(
         url,
         headers={
             "User-Agent": USER_AGENT,
+            "Accept": "application/vnd.github.raw+json, application/json, */*",
             "Cache-Control": "no-cache",
             "Pragma": "no-cache",
         },
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         payload = response.read().decode("utf-8")
-    data = json.loads(payload)
-    if not isinstance(data, dict) or not data.get("version"):
-        raise ValueError("更新信息格式不正确")
-    if not data.get("download_url"):
-        raise ValueError("更新信息缺少下载地址")
-    return data
+    return _load_manifest_payload(payload)
+
+
+def fetch_manifest(url: str | None = None, timeout: float = 15.0) -> dict:
+    """读取最新版本信息。
+
+    * ``url`` 为空时按 :data:`MANIFEST_SOURCES` 顺序尝试多个地址（raw → API → 网页 raw），
+      任一成功即可，避免某个域名被墙/被代理拦截导致无法检测更新；
+    * 单独传入 ``url`` 时只尝试该地址。
+    """
+    sources = (url,) if url else MANIFEST_SOURCES
+    last_error: Exception | None = None
+    for source in sources:
+        try:
+            return _fetch_manifest_once(source, timeout)
+        except Exception as exc:  # noqa: BLE001 - 换下一个来源继续尝试
+            last_error = exc
+    raise RuntimeError(f"无法获取更新信息：{last_error}") from last_error
 
 
 def download_zip(url: str, dest: Path, *, timeout: float = 120.0, progress=None) -> Path:
